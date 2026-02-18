@@ -1,17 +1,18 @@
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
 from kivy.uix.button import Button
 from kivy.uix.popup import Popup
+from kivy.uix.textinput import TextInput
+from kivy.uix.scrollview import ScrollView
 from kivy.core.window import Window
 from kivy.storage.jsonstore import JsonStore
 import webbrowser
 import random
 
-# --- APP CONFIGURATION ---
-APP_VERSION = "1.2"  # Jab update dena ho, ise "1.3" kar dena
-UPDATE_URL = "https://github.com/RAHULSINGH-8787/Rahul-singh-trading/raw/main/bin/trading_app.apk"
-
+# App Config
+APP_VERSION = "1.2"
 Window.clearcolor = (0.05, 0.05, 0.1, 1)
 
 class TradingApp(App):
@@ -20,83 +21,109 @@ class TradingApp(App):
         self.store = JsonStore('app_data.json')
         self.my_number = "918787269197"
         
-        # Check for Update first
-        self.check_for_update()
-        
-        # Load user data
+        # Load Data
         if self.store.exists('user_data'):
             data = self.store.get('user_data')
             self.balance = data.get('balance', 0)
+            self.my_referral_code = data.get('referral_code', f"REF-{random.randint(1000, 9999)}")
         else:
-            self.balance = 0; self.save_data()
+            self.balance = 0; self.my_referral_code = f"REF-{random.randint(1000, 9999)}"; self.save_data()
 
-        self.stocks = {"NIFTY 50": 24500, "BANK NIFTY": 52000, "RELIANCE": 2980, "TATA MOTORS": 985}
-        self.main_layout = BoxLayout(orientation='vertical')
-        
-        # UI Setup
-        nav = BoxLayout(orientation='horizontal', size_hint=(1, 0.1), padding=10)
-        nav.add_widget(Label(text=f"V{APP_VERSION}", size_hint=(0.2, 1), color=(0.5, 0.5, 0.5, 1)))
-        nav.add_widget(Label(text="RAHUL SINGH TRADING PRO", bold=True, color=(1,0.8,0,1)))
-        self.main_layout.add_widget(nav)
+        # All Stocks and Indices Data
+        self.indices = {
+            "NIFTY 50": 24500, "BANK NIFTY": 52000, "SENSEX": 80200,
+            "MIDCAP NIFTY": 12500, "BANKEX": 58000, "DOW JONES": 39500
+        }
+        self.stocks = {"RELIANCE": 2980, "TATA MOTORS": 985, "ZOMATO": 265, "HDFC BANK": 1650}
 
-        self.content = BoxLayout(orientation='vertical', padding=10)
-        self.show_market_ui()
-        self.main_layout.add_widget(self.content)
-        
-        return self.main_layout
+        # --- MAIN HOME PAGE LAYOUT ---
+        self.layout = BoxLayout(orientation='vertical', spacing=5)
 
-    # --- FORCE UPDATE SYSTEM ---
-    def check_for_update(self):
-        # Yahan hum simulate kar rahe hain. 
-        # Real app mein ye server se version check karta hai.
-        latest_version = "1.2" # Agar aap ise 1.3 kar denge code mein toh sabko update dikhega
+        # 1. TOP HEADER (Menu + Search)
+        header = BoxLayout(orientation='horizontal', size_hint=(1, 0.08), padding=5, spacing=10)
+        menu_btn = Button(text="☰", size_hint=(0.15, 1), background_color=(0.1, 0.5, 0.8, 1), font_size=25, bold=True)
+        menu_btn.bind(on_press=self.open_sidebar)
         
-        if APP_VERSION != latest_version:
-            self.show_force_update_popup()
+        self.search_bar = TextInput(hint_text="Search Stocks, F&O...", multiline=False, size_hint=(0.85, 1))
+        self.search_bar.bind(on_text_validate=self.search_action)
+        
+        header.add_widget(menu_btn)
+        header.add_widget(self.search_bar)
+        self.layout.add_widget(header)
 
-    def show_force_update_popup(self):
-        content = BoxLayout(orientation='vertical', spacing=15, padding=20)
-        msg = Label(text="[b]Naya Update Available Hai![/b]\n\nPurana version ab kaam nahi karega.\nKripya naya APK download karein.", 
-                    markup=True, halign='center')
-        
-        upd_btn = Button(text="UPDATE NOW", background_color=(0, 1, 0, 1), size_hint=(1, 0.3))
-        upd_btn.bind(on_press=self.go_to_update)
-        
-        content.add_widget(msg)
-        content.add_widget(upd_btn)
-        
-        # auto_dismiss=False se customer ise hata nahi payega
-        self.upd_popup = Popup(title="Update Compulsory!", content=content, 
-                               size_hint=(0.9, 0.6), auto_dismiss=False)
-        self.upd_popup.open()
+        # 2. INDICES GRID (Nifty, BankNifty, etc.)
+        indices_grid = GridLayout(cols=3, size_hint=(1, 0.2), spacing=5, padding=5)
+        for name, price in self.indices.items():
+            box = BoxLayout(orientation='vertical', padding=5)
+            box.add_widget(Label(text=name, font_size=12, color=(0.7, 0.7, 0.7, 1)))
+            box.add_widget(Label(text=f"₹{price}", bold=True, font_size=14, color=(0, 1, 0, 1)))
+            indices_grid.add_widget(box)
+        self.layout.add_widget(indices_grid)
 
-    def go_to_update(self, instance):
-        webbrowser.open(UPDATE_URL)
+        # 3. WATCHLIST LABEL
+        self.layout.add_widget(Label(text="WATCHLIST", bold=True, color=(1, 0.8, 0, 1), size_hint=(1, 0.05)))
 
-    # --- MARKET & INDICATORS ---
-    def show_market_ui(self):
-        self.content.clear_widgets()
-        self.content.add_widget(Label(text=f"Balance: ₹{self.balance}", color=(0,1,0,1), size_hint=(1,0.1)))
+        # 4. LIVE MARKET LIST (Stocks)
+        scroll = ScrollView()
+        self.stock_list_box = BoxLayout(orientation='vertical', spacing=8, size_hint_y=None, padding=10)
+        self.stock_list_box.bind(minimum_height=self.stock_list_box.setter('height'))
+        
+        self.refresh_watchlist()
+        
+        scroll.add_widget(self.stock_list_box)
+        self.layout.add_widget(scroll)
+        
+        return self.layout
+
+    def refresh_watchlist(self, filter_text=""):
+        self.stock_list_box.clear_widgets()
         for name, price in self.stocks.items():
-            btn = Button(text=f"{name} | ₹{price}", size_hint_y=None, height=70)
-            btn.bind(on_press=lambda x, n=name, p=price: self.show_technicals(n, p))
-            self.content.add_widget(btn)
+            if filter_text.upper() in name.upper():
+                btn = Button(text=f"{name}      ₹{price}", size_hint_y=None, height=70, background_color=(0.1, 0.1, 0.15, 1))
+                btn.bind(on_press=lambda x, n=name, p=price: self.show_trade_panel(n, p))
+                self.stock_list_box.add_widget(btn)
 
-    def show_technicals(self, name, price):
-        rsi = random.randint(20, 80)
-        content = BoxLayout(orientation='vertical', padding=15)
-        content.add_widget(Label(text=f"Indicator Analysis for {name}", bold=True))
-        content.add_widget(Label(text=f"RSI: {rsi}"))
-        content.add_widget(Label(text=f"MACD: Bullish"))
+    def search_action(self, instance):
+        self.refresh_watchlist(self.search_bar.text)
+
+    # --- SIDEBAR MENU ---
+    def open_sidebar(self, instance):
+        content = BoxLayout(orientation='vertical', spacing=10, padding=10)
+        content.add_widget(Label(text="RAHUL SINGH TRADING PRO", bold=True, color=(1, 0.8, 0, 1), size_hint_y=None, height=40))
+        content.add_widget(Label(text=f"Wallet: ₹{self.balance}", color=(0, 1, 0, 1), bold=True))
         
-        btn = Button(text="Close", size_hint=(1, 0.3))
-        popup = Popup(title="Technicals", content=content, size_hint=(0.8, 0.5))
-        btn.bind(on_press=popup.dismiss)
-        content.add_widget(btn)
-        popup.open()
+        btns = [("👤 Profile", self.show_profile), ("💰 Buy Coins", self.show_store), ("🎁 Claim Bonus", self.show_refer_popup), ("📞 Contact Rahul", self.show_contact), ("🤖 Chandel Helpline", self.show_helpline)]
+        for t, f in btns:
+            b = Button(text=t, size_hint_y=None, height=50, background_color=(0.2, 0.2, 0.3, 1))
+            b.bind(on_press=f); content.add_widget(b)
+        
+        content.add_widget(Label(size_hint_y=1))
+        content.add_widget(Label(text=f"App Version: {APP_VERSION}", color=(0.5, 0.5, 0.5, 1), size_hint_y=None, height=30))
+        self.sidebar = Popup(title="Menu", content=content, size_hint=(0.75, 0.9), pos_hint={'x': 0, 'y': 0.05}); self.sidebar.open()
 
-    def save_data(self):
-        self.store.put('user_data', balance=self.balance)
+    # --- TRADE & INDICATORS ---
+    def show_trade_panel(self, n, p):
+        content = BoxLayout(orientation='vertical', spacing=10, padding=15)
+        content.add_widget(Label(text=f"[b]{n}[/b]", markup=True, font_size=20))
+        content.add_widget(Label(text=f"RSI: {random.randint(30,70)} | EMA: ₹{p-10}"))
+        
+        trade_btns = BoxLayout(spacing=10, size_hint_y=0.4)
+        buy_btn = Button(text="BUY", background_color=(0,1,0,1)); buy_btn.bind(on_press=lambda x: self.open_whatsapp(n))
+        sell_btn = Button(text="SELL", background_color=(1,0,0,1)); sell_btn.bind(on_press=lambda x: self.open_whatsapp(n))
+        
+        trade_btns.add_widget(buy_btn); trade_btns.add_widget(sell_btn)
+        content.add_widget(trade_btns)
+        Popup(title="Trading Terminal", content=content, size_hint=(0.9, 0.6)).open()
+
+    # Helper Functions
+    def open_whatsapp(self, n): webbrowser.open(f"https://wa.me/918787269197?text=Rahul Sir, mujhe {n} buy/sell karna hai.")
+    def save_data(self): self.store.put('user_data', balance=self.balance, referral_code=self.my_referral_code)
+    def show_popup(self, t, m): Popup(title=t, content=Label(text=m, halign='center'), size_hint=(0.8, 0.4)).open()
+    def show_profile(self, x): self.show_popup("Profile", f"Balance: ₹{self.balance}\nCode: {self.my_referral_code}")
+    def show_contact(self, x): self.show_popup("Contact", "Rahul Singh: 8787269197")
+    def show_helpline(self, x): self.show_popup("Chandel Helpline", "Chandel Helpline active hai!")
+    def show_store(self, x): self.show_popup("Store", "Recharge ke liye Rahul Sir ko\n8787269197 par WhatsApp karein.")
+    def show_refer_popup(self, x): self.show_popup("Bonus", "Referral code sidebar ke 'Claim Bonus'\nsection mein enter karein.")
 
 if __name__ == '__main__':
     TradingApp().run()
